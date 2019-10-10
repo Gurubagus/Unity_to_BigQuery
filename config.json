@@ -1,0 +1,10 @@
+{ 
+"postgres_server": "<e.g.localhost>", 
+"database": "<db name>", 
+"user": "<username>", 
+"password": "<password>",
+"unity_project_id": ["67a658d0-5a68-405a-b489-452ade4b929d"],
+"<unity_project_id for 1st app>": "<project secret key>",
+"<unity_project_id for 2nd app>": "<project secret key>",
+"local_collection_path": "<dir/for/file/storage>" 
+}
