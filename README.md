@@ -14,6 +14,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="<dir/for/auth/file>"
 TO RUN example:
 python3 Unity_to_BigQuery.py /path/to/config/file
 
-This script will call Unity's Raw Data Export system and request each of the reports you wish and upload them to their corresponding BigQuery Table, will work best when naming conventions stay the same, e.g. Table name = Report Name
+This script will call Unity's Raw Data Export system and request each of the reports you wish and upload them to their corresponding BigQuery Table. Will also message a chosen Slack channel with any errors.
+NOTE: will work best when naming conventions stay the same, e.g. Table name = Report Name
 It will also store data into a local database so you can request data from the end of the last report created, making sure you never miss any data OR you can choose a start date.
 On first run, it will request the maximum amount of historical data from the Unity system (30 days), upload it to your tables and store the data on a local directory of your choosing.
