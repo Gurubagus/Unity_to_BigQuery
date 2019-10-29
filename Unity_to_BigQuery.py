@@ -14,10 +14,6 @@ from sqlalchemy.dialects import postgresql
 from bq_uploader import BigQuery_uploader # Class from PyResources
 from slack_notifier import Error_Notifier
 
-#millis since epoch end time
-#delta = datetime.datetime.utcnow() - datetime.datetime(1970,1,1)
-#millis_end = int(delta.total_seconds()*1000)
-
 class Unity_Analytics_API:
 
 	def __init__(self):
@@ -126,7 +122,7 @@ class Unity_Analytics_API:
 			return
 
 		if 'fileList' not in responseJson['result']:
-			print('no files for job: ' + job_id)
+			print('No files for job: ' + job_id)
 			self.is_files = False
 			return
 
@@ -185,7 +181,7 @@ class Unity_Analytics_API:
 			print('done! all results for job ' + job_type + ' saved to: ' + local_dump_directory)
 		else:
 			print("No files for job, this job will not be registered in Database.")
-			self.is_files == True
+			self.is_files = True
 		
 		print('*** COMPLETE ***')
 		
