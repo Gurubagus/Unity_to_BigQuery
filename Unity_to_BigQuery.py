@@ -4,16 +4,19 @@ import os
 import gzip
 import sys
 import io
-#sys.path.append("<dir/for/slack_notifier/and/or/bq_uploader/if/different>") #Directory for additional custom Classes, CHANGE TO LOCAL DIR where BigQuery/Slack Notifier is stored if seperate directory
+sys.path.append("/home/zac/PyResources") #Directory for additional custom Classes
 import json
 import urllib
 from datetime import *
 import time
 from sqlalchemy import create_engine, MetaData, Table, Integer, DateTime, String, Column, select, BigInteger, Numeric
 from sqlalchemy.dialects import postgresql
-from bq_uploader import BigQuery_uploader #bq_uploader.py file
-from slack_notifier import Error_Notifier #slack_notifier.py
+from bq_uploader import BigQuery_uploader # Class from PyResources
+from slack_notifier import Error_Notifier
 
+#millis since epoch end time
+#delta = datetime.datetime.utcnow() - datetime.datetime(1970,1,1)
+#millis_end = int(delta.total_seconds()*1000)
 
 class Unity_Analytics_API:
 
@@ -34,7 +37,6 @@ class Unity_Analytics_API:
 		
 		self.metadata = MetaData()
 
-		# Create schema for Job Info Storage on local system, this allows for recovery of previous Job IDs and descriptive data in case of issue
 		self.job_id_table = Table('ua_completed_reports', self.metadata,
 			Column('job_Id', Integer, primary_key=True),
 			Column('job_Type', String),
@@ -53,18 +55,19 @@ class Unity_Analytics_API:
 		self.uri = "https://analytics.cloud.unity3d.com/api/v2/projects/"  
 		self.today = date.today()
 		self.yesterday = date.today() - timedelta(days=1)
+		self.is_files = True
 		
 	def request_raw_analytics_dump(self, unity_project_id, start_date, end_date, dump_format, data_set,
-								   continue_from=None): #Raw data request method
+								   continue_from=None):
 
 		uri = self.uri + unity_project_id + '/rawdataexports'
 
 		postBodyJson = {'endDate': end_date, 'format': dump_format, 'dataset': data_set}
 
-		if continue_from is not None: #If previous Job ID exists, will be entered here
+		if continue_from is not None:
 			postBodyJson['continueFrom'] = continue_from
 		else:
-			postBodyJson['startDate'] = start_date #Otherwise chooses start date (from main() method)
+			postBodyJson['startDate'] = start_date
 		
 		headers = {'content-type': 'application/json'}
 		r = requests.post(uri, headers=headers, json=postBodyJson, auth=HTTPBasicAuth(unity_project_id, self.CONFIG['{}'.format(unity_project_id)]))
@@ -76,7 +79,7 @@ class Unity_Analytics_API:
 			return None
 	       
 							  
-	def is_raw_analytics_dump_ready(self, unity_project_id, unity_api_key, job_id): #Checks for dump to be ready
+	def is_raw_analytics_dump_ready(self, unity_project_id, unity_api_key, job_id):
 
 		uri = 'https://analytics.cloud.unity3d.com/api/v2/projects/' + unity_project_id + '/rawdataexports/' + job_id
 		r = requests.get(uri, auth=HTTPBasicAuth(unity_project_id, unity_api_key))
@@ -87,6 +90,7 @@ class Unity_Analytics_API:
 		return False
 	
 	def find_previous_job_id(self, job_type, unity_project_id):# returns the last job stored in the database for a job type, if it exists
+
 		s = select([self.job_id_table]).where(self.job_id_table.c.job_Type == job_type).where(self.job_id_table.c.app_id == unity_project_id).order_by(self.job_id_table.c.ts.desc())
 		selectResult = self.conn.execute(s)
 		result = selectResult.fetchone()
@@ -96,8 +100,10 @@ class Unity_Analytics_API:
 			return None
 
 		print('found previous job ' + result['job_Id'] + ' for job type ' + job_type + " on app " + unity_project_id)
-
+		
 		return result['job_Id']
+
+		#return None #for when you ust make custom request
 				
 	# extracts and un-compresses all result files in a job
 	def save_raw_analytics_dump(self,unity_project_id, unity_api_key, job_id, job_type,destination_directory):
@@ -121,6 +127,7 @@ class Unity_Analytics_API:
 
 		if 'fileList' not in responseJson['result']:
 			print('no files for job: ' + job_id)
+			self.is_files = False
 			return
 
 		for fileToDownload in responseJson['result']['fileList']:
@@ -134,67 +141,80 @@ class Unity_Analytics_API:
 				decompressed_file = gzip.GzipFile(fileobj=compressed_file)
 				
 				with open(os.path.join(daily_directory, fileName), 'w+b') as outFile:
+					#outFile.write(decompressed_file.read())
 					file = outFile.write(decompressed_file.read())
 					fname = str(daily_directory + "/" + fileName)
-					#If have multiple apps/tables to upload to, list unity_project_id below and table name
-					if unity_project_id == "<unity_project_id>": #CHANGE TO PERSONAL SETTING
-						upload = BigQuery_uploader().main("<BigQuery Table Name>",job_type,fname,"NEWLINE_DELIMITED_JSON")
-					elif unity_project_id == "<unity_project_id>":#CHANGE TO PERSONAL SETTING
-						upload = BigQuery_uploader().main("<BigQuery Table Name>",job_type,fname,"NEWLINE_DELIMITED_JSON")
+					if unity_project_id == "67a658d0-5a68-405a-b489-452ade4b929d":
+						upload = BigQuery_uploader().main("Hammer_Jump",job_type,fname,"NEWLINE_DELIMITED_JSON")
+					elif unity_project_id == "58f091bd-7a0f-48b9-bc9a-c32b9fd140a6":
+						upload = BigQuery_uploader().main("Pole_Sprint",job_type,fname,"NEWLINE_DELIMITED_JSON")
+					elif unity_project_id == "7456b5d0-e2f4-48cc-8b00-389d8ebd016f":
+						upload = BigQuery_uploader().main("Tricky_Tower_3D",job_type,fname,"NEWLINE_DELIMITED_JSON")
+					elif unity_project_id == "ce926feb-81ea-412e-8c26-2304176eb18a":
+						upload = BigQuery_uploader().main("Bendy_Bug",job_type,fname,"NEWLINE_DELIMITED_JSON")
 					
 	def main(self, job_type, unity_project_id, local_dump_directory):
 
 		print('collector: starting collection for job: ' + job_type)
-		continuationJobId = self.find_previous_job_id(job_type, unity_project_id) #Looks for previous Job ID
+		continuationJobId = self.find_previous_job_id(job_type, unity_project_id)
 		
-		start_date =  self.today - timedelta(days=30) #start date with maximum historical data allowed by Unity
+		start_date =  self.today - timedelta(days=30)
+		#start_date = "2019-10-28" #if custom is required, also comment out find_previous_job_id except return None 
 
-		jobId = self.request_raw_analytics_dump(unity_project_id, str(start_date), str(self.today),'json', job_type, continuationJobId) #Requests Raw Data Dump
+		jobId = self.request_raw_analytics_dump(unity_project_id, str(start_date), str(self.today),'json', job_type, continuationJobId)
 		
 
 		print('started jobId: ' + jobId)
 		print("Waiting for data dump to be ready...this may take several minutes.")
 		
-		#Checks Unity every (5) seconds for Dump to be ready
 		while not self.is_raw_analytics_dump_ready(unity_project_id,
 											  self.CONFIG['{}'.format(unity_project_id)], jobId):
-			time.sleep(5) #Choose frequency of data dump ready check
+			time.sleep(5)
 			self.wait_time += 5
-			
 		print("Total wait time: {} seconds".format(self.wait_time))
-		
 		self.wait_time = 0
-		
-		#Saves dump to local directory
 		self.save_raw_analytics_dump(unity_project_id,  self.CONFIG['{}'.format(unity_project_id)], jobId, job_type,
 								local_dump_directory)
 		
-		print('done! all results for job ' + job_type + ' saved to: ' + local_dump_directory)
-
-		now = str(datetime.now())
-		date_range = str(start_date) + "_to_" + now
+		
 		# keep track of the last jobId we ingested for continuation next time
-		self.conn.execute(self.job_id_table.insert().values(ts=now, job_Id=jobId, job_Type=job_type, app_id=unity_project_id, previous_job_id=continuationJobId, date_range=date_range))
+		
+		if self.is_files == True:
+			
+			self.conn.execute(self.job_id_table.insert().values(ts=self.today, job_Id=jobId, job_Type=job_type, app_id=unity_project_id, previous_job_id=continuationJobId))
+			print('done! all results for job ' + job_type + ' saved to: ' + local_dump_directory)
+		else:
+			print("No files for job, this job will not be registered in Database.")
+			self.is_files == True
 		
 		print('*** COMPLETE ***')
 		
 							  
 if __name__ == "__main__":
 	try:
-		report_types = ["appStart", "appRunning", "deviceInfo", "custom", "transaction"] #List of reports desired
+		report_types = ["appStart", "appRunning", "deviceInfo", "custom", "transaction"]
+		#report_types = ["custom"]
 		try:
-			with open(sys.argv[1], "r") as f:
+			with open("/home/zac/Auth/UA_config.json", "r") as f: #REPLACE AS sys.argv[1] when finished
 				CONFIG = json.load(f)
 		except Exception as e:
 			message = "Unity Analytics autoupload ERROR: " + str(e)
-			error = Error_Notifier.main("<channel name>", message) #CHANGE TO PERSONAL SETTING
+			error = Error_Notifier.main("error_log", message)
 			print('failed to read or parse config file')
 			exit(1)
 		Job = Unity_Analytics_API()
 		for UPID in CONFIG['unity_project_id']:
+			if UPID == "67a658d0-5a68-405a-b489-452ade4b929d":
+				print("\nHammer Jump:\n")
+			elif UPID == "58f091bd-7a0f-48b9-bc9a-c32b9fd140a6":
+				print("\nPole Sprint:\n")
+			elif UPID == "7456b5d0-e2f4-48cc-8b00-389d8ebd016f":
+				print("\nTricky Tower 3D:\n")
+			elif UPID == "ce926feb-81ea-412e-8c26-2304176eb18a":
+				print("\nBendy Bug:\n")
 			for report in report_types:
 				task = Job.main(report, UPID, CONFIG['local_collection_path'])
 	except Exception as e:
 		message = "Unity Analytics autoupload ERROR: " + str(e)
-		error = Error_Notifier.main("<channel name>", message) #CHANGE TO PERSONAL SETTING
+		error = Error_Notifier.main("error_log", message)
 	
